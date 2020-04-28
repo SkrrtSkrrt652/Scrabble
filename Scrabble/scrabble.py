@@ -19,6 +19,7 @@ class Scrabble():
         self.rack = rack[:]
         self.best_move = dict()
         self.best_score = 0
+        self.best_word = ""
         self.dictionary = Lexicon("sowpods.txt")
         self.cross_checks = []
         self.cross_checks_transp = []
@@ -79,19 +80,27 @@ class Scrabble():
         self.cross_checks = [self.cross_checks_row(i,0) for i in range(15)]
         self.cross_checks_transp = [self.cross_checks_row(i,1) for i in range(15)]
     
-    def get_anchors(self, row):
+    def get_anchors(self, row, transp=0):
         '''
         Get the anchors from a given row.
         row is the index of the row on the board
         returns a list of numbers, where each number is the column of the anchor in the row
         '''
         anchors = set()
-        for i in range(15):
-            if (i > 0 and self.board[row][i] is None and self.board[row][i-1] is not None or 
-                i < 14 and self.board[row][i] is None and self.board[row][i+1] is not None or
-                row > 0 and self.board[row][i] is None and self.board[row-1][i] is not None or
-                row < 14 and self.board[row][i] is None and self.board[row+1][i] is not None):
-                anchors.add(i)
+        if not transp:
+            for i in range(15):
+                if (i > 0 and self.board[row][i] is None and self.board[row][i-1] is not None or 
+                    i < 14 and self.board[row][i] is None and self.board[row][i+1] is not None or
+                    row > 0 and self.board[row][i] is None and self.board[row-1][i] is not None or
+                    row < 14 and self.board[row][i] is None and self.board[row+1][i] is not None):
+                    anchors.add(i)
+        else:
+             for i in range(15):
+                if (i > 0 and self.board_transp[row][i] is None and self.board_transp[row][i-1] is not None or 
+                    i < 14 and self.board_transp[row][i] is None and self.board_transp[row][i+1] is not None or
+                    row > 0 and self.board_transp[row][i] is None and self.board_transp[row-1][i] is not None or
+                    row < 14 and self.board_transp[row][i] is None and self.board_transp[row+1][i] is not None):
+                    anchors.add(i)
         return anchors
     
     def cross_checks_row(self, row, transp):
@@ -244,22 +253,53 @@ class Scrabble():
 
 
     def get_best_move(self):
-        # Search all fifteen rows for best moves
+        # Search all fifteen rows for best move(s)
         for i in range(15):
             row_anchors = self.get_anchors(i)
             for anchor in row_anchors:
-                limit = 0
-                column_iter = anchor - 1
-                while column_iter >= 0 and self.board[i][column_iter] is None and column_iter not in row_anchors:
-                    limit += 1
-                    column_iter -= 1
-                self.left_part("", self.dictionary.root_node,limit,(i,anchor), 0)
-        return (self.best_move, self.best_score)
+                if anchor != 0 and self.board[i][anchor-1] is not None:
+                    prefix = ""
+                    column_iter = anchor-1
+                    while column_iter >= 0 and self.board[i][column_iter] is not None:
+                        prefix += self.board[i][column_iter]
+                        column_iter -= 1
+                    prefix = prefix[::-1]
+                    prefix_node = self.dictionary.path_node(prefix)
+                    self.right_extend(prefix, prefix_node, (i, anchor), 0, (i, anchor))
+                else:
+                    limit = 0
+                    column_iter = anchor - 1
+                    while column_iter >= 0 and self.board[i][column_iter] is None and column_iter not in row_anchors:
+                        limit += 1
+                        column_iter -= 1
+                    self.left_part("", self.dictionary.root_node, limit, (i, anchor), 0)
+        # Search all fifteen columns for moves
+        
+        for i in range(15):
+            row_anchors = self.get_anchors(i, 1)
+            for anchor in row_anchors:
+                if anchor != 0 and self.board_transp[i][anchor-1] is not None:
+                    prefix = ""
+                    column_iter = anchor-1
+                    while column_iter >= 0 and self.board_transp[i][column_iter] is not None:
+                        prefix += self.board_transp[i][column_iter]
+                        column_iter -= 1
+                    prefix = prefix[::-1]
+                    prefix_node = self.dictionary.path_node(prefix)
+                    self.right_extend(prefix, prefix_node, (i, anchor), 1, (i, anchor))
+                else:
+                    limit = 0
+                    column_iter = anchor - 1
+                    while column_iter >= 0 and self.board_transp[i][column_iter] is None and column_iter not in row_anchors:
+                        limit += 1
+                        column_iter -= 1
+                    self.left_part("", self.dictionary.root_node, limit, (i, anchor), 1)
+        return (self.best_word, self.best_score, self.best_move)
             
         
 
     def left_part(self, partial_word, node, limit, anchor_location, transp):
-        self.right_extend(partial_word, node, anchor_location, transp)
+        self.right_extend(partial_word, node, anchor_location, transp, anchor_location)
 
         if limit == 0:
             return     
@@ -268,12 +308,11 @@ class Scrabble():
                 if edge in self.rack:
                     self.rack.remove(edge)
                     new_node = node.edges[edge]
-                    new_partial_word = partial_word[::-1] + edge
-                    new_partial_word = new_partial_word[::-1]
+                    new_partial_word = partial_word + edge
                     self.left_part(new_partial_word, new_node, limit-1, anchor_location, transp)
                     self.rack.append(edge)
     
-    def right_extend(self, partial_word, node, square, transp):
+    def right_extend(self, partial_word, node, square, transp, base):
         if transp:
             board = self.board_transp
             cross_checks = self.cross_checks_transp
@@ -286,19 +325,21 @@ class Scrabble():
             return
 
         if board[square[0]][square[1]] is None:
-            if node.terminal and board[square[0]][square[1]] in cross_checks[square[0]][square[1]]:
-                move = self.generate_move(partial_word, square, transp)
-                score = self.get_points(move)
+            if node.terminal and square != base:
+                prev_square = (square[0], square[1]-1)
+                move = self.generate_move(partial_word, prev_square, transp)
+                score = self.get_points(move, (not transp))
                 if score > self.best_score:
                     self.best_move = move
                     self.best_score = score
+                    self.best_word = partial_word
             for edge in node.edges:
                 if edge in self.rack and edge in cross_checks[square[0]][square[1]]:
                     self.rack.remove(edge)
                     new_node = node.edges[edge]
                     new_partial_word = partial_word + edge
                     next_square = (square[0], square[1]+1)
-                    self.right_extend(new_partial_word, new_node, next_square, transp)
+                    self.right_extend(new_partial_word, new_node, next_square, transp, base)
                     self.rack.append(edge)
         else:
             l = board[square[0]][square[1]]
@@ -306,7 +347,7 @@ class Scrabble():
                 new_node = node.edges[l]
                 next_square = (square[0], square[1]+1)
                 new_partial_word = partial_word + l
-                self.right_extend(new_partial_word, new_node, next_square, transp)
+                self.right_extend(new_partial_word, new_node, next_square, transp, base)
             
 
     def generate_move(self, word, last_square, transp):
@@ -325,5 +366,9 @@ class Scrabble():
         column_iter = last_square[1]
         for i in range(len(word)):
             if board[row][column_iter] is None:
-                placement[row,column_iter] = word[len(word)-1-i]
+                if not transp:
+                    placement[row,column_iter] = word[len(word)-1-i]
+                else:
+                    placement[column_iter, row] = word[len(word)-1-i]
+            column_iter -= 1
         return placement
