@@ -8,8 +8,9 @@ def string_to_rack(string):
 
 
 
-game = scrabble.Scrabble(rack=string_to_rack("RBNRPRS"))
-game.load_board("bordz/SARGZ.txt")
-best_move = game.get_best_move()
-print(best_move)
+game = scrabble.Scrabble(rack=string_to_rack("TBRDKPC"))
+game.load_board("bordz/HERBZ.txt")
+game.solve()
+print("Highest scoring move: ", game.get_best_move())
+print("Longest move: ", game.get_longest_move())
 print("Success!")
