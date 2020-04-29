@@ -5,7 +5,7 @@ from lexicon import Lexicon
 import copy
 
 class Scrabble():
-    def __init__(self, rack):
+    def __init__(self, rack, dictfile):
         '''
         The constructor initializes the following
         Two boards (regular and transposed)
@@ -24,7 +24,7 @@ class Scrabble():
         self.longest_score = 0
         self.longest_length = 0
         self.longest_word = ""
-        self.dictionary = Lexicon("sowpods.txt")
+        self.dictionary = Lexicon(dictfile)
         self.cross_checks = []
         self.cross_checks_transp = []
         print("Loaded dictionary!")
@@ -33,6 +33,13 @@ class Scrabble():
             'I': 1, 'J': 8, 'K': 5, 'L': 1, 'M': 3, 'N': 1, 'O': 1, 'P': 3,
             'Q': 10, 'R': 1, 'S': 1, 'T': 1, 'U': 1, 'V': 4, 'W': 4, 'X': 8,
             'Y': 4, 'Z': 10
+        }
+
+        self.tile_dist = {
+            'A': 9, 'B': 2, 'C': 2, 'D': 4, 'E': 12, 'F': 2, 'G': 3, 'H': 2,
+            'I': 9, 'J': 1, 'K': 1, 'L': 4, 'M': 2, 'N': 6, 'O': 8, 'P': 2,
+            'Q': 1, 'R': 6, 'S': 4, 'T': 6, 'U': 4, 'V': 2, 'W': 2, 'X': 1,
+            'Y': 2, 'Z': 1, ' ':2
         }
         
         for i in range(15):
@@ -76,13 +83,24 @@ class Scrabble():
         with open(filename) as f:
             lc = 0
             for line in f:
-                for i in range(len(line)-1):
-                    if line[i] != '.':
-                        self.board[lc][i] = line[i]
-                        self.board_transp[i][lc] = line[i]
+                if lc < 15:
+                    for i in range(len(line)-1):
+                        if line[i] != '.':
+                            self.board[lc][i] = line[i]
+                            self.board_transp[i][lc] = line[i]
                 lc += 1
         self.cross_checks = [self.cross_checks_row(i,0) for i in range(15)]
         self.cross_checks_transp = [self.cross_checks_row(i,1) for i in range(15)]
+    
+    def set_rack(self, rack):
+        self.rack = rack[:]
+        self.best_move = dict()
+        self.best_score = 0
+        self.best_word = ""
+        self.longest_move = dict()
+        self.longest_score = 0
+        self.longest_length = 0
+        self.longest_word = ""
     
     def get_anchors(self, row, transp=0):
         '''
@@ -178,7 +196,7 @@ class Scrabble():
             column = place[1]
             # Check upwards for part of vertical word
             up_count = row-1
-            while up_count > 0 and board[up_count][column] is not None:
+            while up_count >= 0 and board[up_count][column] is not None:
                 word_points += self.points[board[up_count][column]]
                 up_count -= 1
             # Check downwards for part of vertical word
@@ -258,6 +276,9 @@ class Scrabble():
 
 
     def solve(self):
+        '''
+        Updates the best and longest words using by backtracking through all possible moves across and down
+        '''
         if '*' in self.rack:
             self.blank_solve()
         else:
@@ -304,7 +325,9 @@ class Scrabble():
                         self.left_part("", self.dictionary.root_node, limit, (i, anchor), 1)
             
         
-
+    '''
+    The following two functions implement Appel and Jacobson's  backtrack search for moves
+    '''
     def left_part(self, partial_word, node, limit, anchor_location, transp):
         self.right_extend(partial_word, node, anchor_location, transp, anchor_location)
 
@@ -329,6 +352,19 @@ class Scrabble():
 
         row = square[0]
         if square[1] > 14:
+            if node.terminal and square != base:
+                prev_square = (square[0], square[1]-1)
+                move = self.generate_move(partial_word, prev_square, transp)
+                score = self.get_points(move, (not transp))
+                if score > self.best_score:
+                    self.best_move = move
+                    self.best_score = score
+                    self.best_word = partial_word
+                if len(partial_word) > self.longest_length:
+                    self.longest_length = len(partial_word)
+                    self.longest_score = score
+                    self.longest_move = move
+                    self.longest_word = partial_word
             return
         if node is None:
             return
@@ -394,3 +430,22 @@ class Scrabble():
 
     def blank_solve(self):
         raise NotImplementedError
+
+    def get_opponent_rack_prob_dist(self):
+        prob_dist = dict()
+        distcpy = self.tile_dist
+        for i in range(15):
+            for j in range(15):
+                if self.board[i][j] is not None and self.board[i][j] in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
+                    distcpy[self.board[i][j]] -= 1
+        for i in range(len(self.rack)):
+            distcpy[self.rack[i]] -= 1
+        total_tiles_left = 0
+        for c in distcpy:
+            total_tiles_left += distcpy[c]
+        for c in self.tile_dist:
+            prob_dist[c] = 1 - (1 - distcpy[c]/total_tiles_left)**7
+        return prob_dist
+
+
+            
